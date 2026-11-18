@@ -1,0 +1,2 @@
+class SourcePipeError(Exception):
+    pass

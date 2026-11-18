@@ -1,0 +1,84 @@
+name: ${LSC_PROJECT_NAME:?}
+
+services:
+  fastapi:
+    build:
+      context: ${LSC_PROJECT_ROOT:?}
+      dockerfile: services/docker/images/python/Dockerfile
+      target: prod
+
+    restart: unless-stopped
+
+    command: >
+      sh -ec "
+        python -m alembic -c services/alembic/alembic.ini upgrade head
+        fastapi run --host 0.0.0.0 --port 8000 --workers 1 --root-path /${LSC_PROJECT_NAME:?}
+      "
+
+    env_file: .env
+
+    labels:
+      # Routing
+      - traefik.enable=true
+
+      # Network
+      - traefik.docker.network=aether-edge
+
+      # Route
+      - traefik.http.routers.${LSC_PROJECT_NAME:?}.rule=Host(`${LSC_PROJECT_DOMAIN:?}`) && (Path(`/${LSC_PROJECT_NAME:?}`) || PathPrefix(`/${LSC_PROJECT_NAME:?}/`))
+      - traefik.http.routers.${LSC_PROJECT_NAME:?}.entrypoints=websecure
+      - traefik.http.routers.${LSC_PROJECT_NAME:?}.middlewares=${LSC_PROJECT_NAME:?}-prefix
+      - traefik.http.services.${LSC_PROJECT_NAME:?}.loadbalancer.server.port=8000
+
+      # Path prefix
+      - traefik.http.middlewares.${LSC_PROJECT_NAME:?}-prefix.stripprefix.prefixes=/${LSC_PROJECT_NAME:?}
+
+      # Documentation
+      - traefik.http.routers.${LSC_PROJECT_NAME:?}-docs.rule=Host(`${LSC_PROJECT_DOMAIN:?}`) && (Path(`/${LSC_PROJECT_NAME:?}`) || Path(`/${LSC_PROJECT_NAME:?}/`) || PathPrefix(`/${LSC_PROJECT_NAME:?}/docs`) || PathPrefix(`/${LSC_PROJECT_NAME:?}/redoc`) || Path(`/${LSC_PROJECT_NAME:?}/openapi.json`))
+      - traefik.http.routers.${LSC_PROJECT_NAME:?}-docs.entrypoints=websecure
+      - traefik.http.routers.${LSC_PROJECT_NAME:?}-docs.service=${LSC_PROJECT_NAME:?}
+      - traefik.http.routers.${LSC_PROJECT_NAME:?}-docs.middlewares=${LSC_PROJECT_NAME:?}-docs-auth,${LSC_PROJECT_NAME:?}-prefix
+
+      # Basic auth
+      - traefik.http.middlewares.${LSC_PROJECT_NAME:?}-docs-auth.basicauth.users=${LSC_DOCS_BASE_AUTH:?}
+      - traefik.http.middlewares.${LSC_PROJECT_NAME:?}-docs-auth.basicauth.removeheader=true
+
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+    networks:
+      - edge
+      - internal
+
+
+  postgres:
+    image: postgres:18.6-trixie@sha256:74935e72241653ca55e0414067e6d8763aceb8a810eb51b452253ec3dcfc4336
+    restart: unless-stopped
+
+    environment:
+      - POSTGRES_DB=${LSC_DB_NAME:?}
+      - POSTGRES_USER=${LSC_DB_USERNAME:?}
+      - POSTGRES_PASSWORD=${LSC_DB_PASSWORD:?}
+
+    healthcheck:
+      test: ["CMD", "pg_isready", "-h", "127.0.0.1", "-U", "${LSC_DB_USERNAME:?}", "-d", "${LSC_DB_NAME:?}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
+    volumes:
+      - postgres_data:/var/lib/postgresql
+
+    networks:
+      - internal
+
+networks:
+  edge:
+    external: true
+    name: aether-edge
+  internal:
+
+volumes:
+  postgres_data:

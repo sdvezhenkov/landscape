@@ -1,0 +1,2 @@
+class TargetPipeError(Exception):
+    pass

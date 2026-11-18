@@ -1,0 +1,12 @@
+.git
+.env
+.idea
+.venv
+.coverage
+.pytest_cache
+.ruff_cache
+__pycache__/
+wp*.txt
+wp*.py
+.env.*
+!.env.example
